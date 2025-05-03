@@ -6,7 +6,7 @@ public class UrlScanJobService : IUrlScanJobService
     private readonly IDocumentParserService parserService;
     private readonly IVectorStoreService vectorStore;
     private readonly IEmbeddingService embeddingService;
-    private readonly IJobStatusStore jobStatusStore;
+    private readonly IJobStatusRepository jobStatusRepository;
     private readonly ILogger<UrlScanJobService> logger;
 
     public UrlScanJobService(
@@ -14,14 +14,14 @@ public class UrlScanJobService : IUrlScanJobService
         IDocumentParserService parserService,
         IVectorStoreService vectorStore,
         IEmbeddingService embeddingService,
-        IJobStatusStore jobStatusStore,
+        IJobStatusRepository jobStatusStore,
         ILogger<UrlScanJobService> logger)
     {
         this.scraperService = scraperService;
         this.parserService = parserService;
         this.vectorStore = vectorStore;
         this.embeddingService = embeddingService;
-        this.jobStatusStore = jobStatusStore;
+        this.jobStatusRepository = jobStatusStore;
         this.logger = logger;
     }
 
@@ -85,7 +85,7 @@ public class UrlScanJobService : IUrlScanJobService
     {
         try
         {
-            jobStatusStore.UpdateJobStatus(jobId.ToString(), status, message);
+            await jobStatusRepository.UpdateJobStatusAsync(jobId.ToString(), status, message);
         }
         catch (Exception ex)
         {

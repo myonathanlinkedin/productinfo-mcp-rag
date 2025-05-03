@@ -8,9 +8,9 @@ public class ScanUrlCommand : IRequest<Result>
     public class ScanUrlCommandHandler : IRequestHandler<ScanUrlCommand, Result>
     {
         private readonly IBackgroundJobClient jobClient;
-        private readonly IJobStatusStore jobStatusStore;
+        private readonly IJobStatusRepository jobStatusStore;
 
-        public ScanUrlCommandHandler(IBackgroundJobClient jobClient, IJobStatusStore jobStatusStore)
+        public ScanUrlCommandHandler(IBackgroundJobClient jobClient, IJobStatusRepository jobStatusStore)
         {
             this.jobClient = jobClient;
             this.jobStatusStore = jobStatusStore;
@@ -24,7 +24,7 @@ public class ScanUrlCommand : IRequest<Result>
             }
 
             request.Urls
-                .Select(url => (JobId: jobStatusStore.CreateJob([url]), Url: url))
+                .Select(url => (JobId: jobStatusStore.CreateJobAsync([url]).Result, Url: url))
                 .ToList()
                 .ForEach(job =>
                     jobClient.Enqueue<IUrlScanJobService>(svc =>

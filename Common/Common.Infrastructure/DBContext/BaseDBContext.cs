@@ -2,19 +2,19 @@ using Microsoft.EntityFrameworkCore;
 
 public abstract class BaseDbContext<TContext> : DbContext where TContext : DbContext
 {
-    private readonly IEventDispatcher _eventDispatcher;
-    private readonly Stack<object> _savesChangesTracker;
+    private readonly IEventDispatcher eventDispatcher;
+    private readonly Stack<object> savesChangesTracker;
 
     protected BaseDbContext(DbContextOptions<TContext> options, IEventDispatcher eventDispatcher)
         : base(options)
     {
-        _eventDispatcher = eventDispatcher;
-        _savesChangesTracker = new Stack<object>();
+        this.eventDispatcher = eventDispatcher;
+        savesChangesTracker = new Stack<object>();
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        _savesChangesTracker.Push(new object());
+        savesChangesTracker.Push(new object());
 
         var entitiesWithEvents = ChangeTracker
             .Entries<IEntity>()
@@ -29,13 +29,13 @@ public abstract class BaseDbContext<TContext> : DbContext where TContext : DbCon
 
             foreach (var domainEvent in events)
             {
-                await _eventDispatcher.Dispatch(domainEvent);
+                await eventDispatcher.Dispatch(domainEvent);
             }
         }
 
-        _savesChangesTracker.Pop();
+        savesChangesTracker.Pop();
 
-        if (!_savesChangesTracker.Any())
+        if (!savesChangesTracker.Any())
         {
             return await base.SaveChangesAsync(cancellationToken);
         }
