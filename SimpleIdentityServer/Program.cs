@@ -2,28 +2,45 @@
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Reflection;
+using Qdrant.Client;
+using Qdrant.Client.Grpc;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Register ApplicationSettings
+builder.Services.Configure<ApplicationSettings>(builder.Configuration.GetSection("ApplicationSettings"));
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<ApplicationSettings>>().Value);
+
 builder.Services
-   .AddSingleton(builder.Configuration.GetSection("ApplicationSettings").Get<ApplicationSettings>())
-   .AddCommonApplication(builder.Configuration, Assembly.GetExecutingAssembly())
-   .AddIdentityApplicationConfiguration(builder.Configuration)
-   .AddIdentityInfrastructure(builder.Configuration)
+   .AddCommonApplication(Assembly.GetExecutingAssembly())
+   .AddIdentityApplicationConfiguration()
+   .AddIdentityInfrastructure()
    .AddIdentityWebComponents()
-   .AddIdentityModelConfiguration(builder.Configuration)
-   .AddTokenAuthentication(builder.Configuration)
-   .AddRAGScannerApplication(builder.Configuration)
-   .AddRAGScannerInfrastructure(builder.Configuration)
+   .AddIdentityModelConfiguration()
+   .AddTokenAuthentication()
+   .AddRAGScannerApplication()
+   .AddRAGScannerInfrastructure()
    .AddRAGScannerWebComponents()
    .AddEventSourcing()
    .AddModelBinders()
    .AddSwaggerGen(c => c.SwaggerDoc("v1", new OpenApiInfo { Title = "Web API", Version = "v1" }))
    .AddHttpClient()
-   .AddMcpClient(builder.Configuration)
+   .AddMcpClient()
    .AddMemoryCache()
    .AddDistributedMemoryCache()
-   .AddHangfire(config => config.UseSqlServerStorage(builder.Configuration.GetConnectionString("RAGDBConnection")))
+   .AddSingleton(sp =>
+   {
+       var appSettings = sp.GetRequiredService<ApplicationSettings>();
+       return appSettings.ConnectionStrings.RAGDBConnection;
+   })
+   .AddHangfire(config =>
+   {
+       using var scope = builder.Services.BuildServiceProvider().CreateScope();
+       var appSettings = scope.ServiceProvider.GetRequiredService<ApplicationSettings>();
+       var connectionString = appSettings.ConnectionStrings.RAGDBConnection;
+       config.UseSqlServerStorage(connectionString);
+   })
    .AddHangfireServer()
    .AddSession(options =>
    {
@@ -35,6 +52,20 @@ builder.Services
    })
    .AddHttpContextAccessor()
    .AddHttpClient<IVectorStoreService, VectorStoreService>();
+
+builder.Services.AddSingleton<QdrantClient>(sp =>
+{
+    var settings = sp.GetRequiredService<ApplicationSettings>().Qdrant;
+    var uri = new Uri(settings.Endpoint);
+    var channel = QdrantChannel.ForAddress(uri, new ClientConfiguration
+    {
+        ApiKey = settings.ApiKey,
+        CertificateThumbprint = settings.CerCertificateThumbprint
+    });
+
+    var grpcClient = new QdrantGrpcClient(channel);
+    return new QdrantClient(grpcClient);
+});
 
 Log.Logger = new LoggerConfiguration()
    .WriteTo.Console()
@@ -49,7 +80,7 @@ var app = builder.Build();
 // Ensure cookies are only sent over HTTPS
 app.UseCookiePolicy(new CookiePolicyOptions
 {
-    Secure = CookieSecurePolicy.Always // This ensures cookies are sent only over HTTPS
+    Secure = CookieSecurePolicy.Always // Ensures cookies are sent only over HTTPS
 });
 
 app

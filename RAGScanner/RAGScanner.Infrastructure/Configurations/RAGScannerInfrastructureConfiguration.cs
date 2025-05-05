@@ -5,11 +5,14 @@ using System.Reflection;
 public static class RAGScannerInfrastructureConfiguration
 {
     public static IServiceCollection AddRAGScannerInfrastructure(
-        this IServiceCollection services,
-        IConfiguration configuration)
+        this IServiceCollection services)
     {
-        services.AddDBStorage<RAGDbContext>(configuration, Assembly.GetExecutingAssembly(), configuration.GetConnectionString("RAGDBConnection"))
-            .AddRAGScannerAssemblyServices();
+        using var scope = services.BuildServiceProvider().CreateScope();
+        var appSettings = scope.ServiceProvider.GetRequiredService<ApplicationSettings>();
+
+        services.AddDBStorage<RAGDbContext>(
+                Assembly.GetExecutingAssembly(),
+                appSettings.ConnectionStrings.RAGDBConnection).AddRAGScannerAssemblyServices();
 
         return services;
     }
@@ -22,8 +25,7 @@ public static class RAGScannerInfrastructureConfiguration
             .FromAssemblies(assembly)
             .AddClasses(classes => classes.InNamespaceOf<DocumentParserService>()) // <- better: typesafe
             .AsImplementedInterfaces()
-            .WithScopedLifetime()
-        );
+            .WithScopedLifetime());
 
         return services;
     }

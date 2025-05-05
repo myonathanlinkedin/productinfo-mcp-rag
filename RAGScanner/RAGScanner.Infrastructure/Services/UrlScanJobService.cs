@@ -14,46 +14,38 @@ public class UrlScanJobService : IUrlScanJobService
         IDocumentParserService parserService,
         IVectorStoreService vectorStore,
         IEmbeddingService embeddingService,
-        IJobStatusRepository jobStatusStore,
+        IJobStatusRepository jobStatusRepository,
         ILogger<UrlScanJobService> logger)
     {
         this.scraperService = scraperService;
         this.parserService = parserService;
         this.vectorStore = vectorStore;
         this.embeddingService = embeddingService;
-        this.jobStatusRepository = jobStatusStore;
+        this.jobStatusRepository = jobStatusRepository;
         this.logger = logger;
     }
 
     public async Task ProcessAsync(List<string> urls, Guid jobId)
     {
-        await UpdateJobStatus(jobId, JobStatusType.InProgress, "Processing");
+        await UpdateJobStatusAsync(jobId, JobStatusType.InProgress, "Processing");
 
-        var scrapedDocs = await TryScrape(urls);
+        var scrapedDocs = await TryScrapeAsync(urls);
         if (!scrapedDocs.Any())
         {
-            await UpdateJobStatus(jobId, JobStatusType.Failed, "Nothing scraped.");
+            await UpdateJobStatusAsync(jobId, JobStatusType.Failed, "Nothing scraped.");
             return;
         }
 
-        var tasks = scrapedDocs.SelectMany(doc =>
-        {
-            IEnumerable<string> contents = doc.IsPdf
-                ? parserService.ParsePdfPerPage(doc.ContentBytes)
-                : new[] { parserService.ParseHtml(doc.ContentText) };
-
-            return contents
-                .Select((content, index) => new { content, index })
-                .Where(x => !string.IsNullOrWhiteSpace(x.content))
-                .Select(x => ProcessPage(doc, x.content, x.index));
-        });
+        var tasks = scrapedDocs
+            .SelectMany(doc => ParseDocumentPages(doc)
+                .Where(content => !string.IsNullOrWhiteSpace(content.Content))
+                .Select(content => ProcessPageAsync(doc, content)));
 
         await Task.WhenAll(tasks);
-
-        await UpdateJobStatus(jobId, JobStatusType.Completed, "Completed");
+        await UpdateJobStatusAsync(jobId, JobStatusType.Completed, "Completed");
     }
 
-    private async Task<IEnumerable<ScrapedDocument>> TryScrape(List<string> urls)
+    private async Task<IEnumerable<ScrapedDocument>> TryScrapeAsync(List<string> urls)
     {
         try
         {
@@ -66,22 +58,28 @@ public class UrlScanJobService : IUrlScanJobService
         }
     }
 
-    private async Task ProcessPage(ScrapedDocument doc, string content, int pageIndex)
+    private IEnumerable<DocumentContent> ParseDocumentPages(ScrapedDocument doc) =>
+        doc.IsPdf
+            ? parserService.ParsePdfPerPage(doc.ContentBytes)
+                .Select((content, index) => new DocumentContent(content ?? string.Empty, index))
+            : new[] { new DocumentContent(parserService.ParseHtml(doc.ContentText) ?? string.Empty, 0) };
+
+    private async Task ProcessPageAsync(ScrapedDocument doc, DocumentContent pageContent)
     {
-        var embedding = await embeddingService.GenerateEmbeddingAsync(content, default);
+        var embedding = await embeddingService.GenerateEmbeddingAsync(pageContent.Content, default);
         var metadata = new DocumentMetadata
         {
             Url = doc.Url,
-            Title = pageIndex == 0 ? ExtractTitle(content) : $"Page {pageIndex + 1}",
+            Title = pageContent.Index == 0 ? ExtractTitle(doc.ContentText) : $"Page {pageContent.Index + 1}",
             SourceType = doc.IsPdf ? "pdf" : "html",
-            Content = content,
+            Content = pageContent.Content,
             ScrapedAt = DateTime.UtcNow
         };
 
         await vectorStore.SaveDocumentAsync(new DocumentVector { Embedding = embedding, Metadata = metadata }, embedding.Length);
     }
 
-    private async Task UpdateJobStatus(Guid jobId, JobStatusType status, string message)
+    private async Task UpdateJobStatusAsync(Guid jobId, JobStatusType status, string message)
     {
         try
         {
@@ -100,6 +98,6 @@ public class UrlScanJobService : IUrlScanJobService
         var end = html.IndexOf(endTag, StringComparison.OrdinalIgnoreCase);
         return (start == -1 || end == -1 || end <= start)
             ? "Untitled"
-            : html.Substring(start + startTag.Length, end - start - startTag.Length).Trim();
+            : html[(start + startTag.Length)..end].Trim();
     }
 }

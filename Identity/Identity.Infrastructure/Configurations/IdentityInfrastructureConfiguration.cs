@@ -1,16 +1,16 @@
 ﻿using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
 
 public static class IdentityInfrastructureConfiguration
 {
-    public static IServiceCollection AddIdentityInfrastructure(
-        this IServiceCollection services,
-        IConfiguration configuration)
+    public static IServiceCollection AddIdentityInfrastructure(this IServiceCollection services)
     {
-        services.AddIdentity(configuration)
-                .AddDBStorage<IdentityDbContext>(configuration, Assembly.GetExecutingAssembly(), configuration.GetConnectionString("IdentityDBConnection"))
+        using var scope = services.BuildServiceProvider().CreateScope();
+        var appSettings = scope.ServiceProvider.GetRequiredService<ApplicationSettings>();
+
+        services.AddIdentity(appSettings)
+                .AddDBStorage<IdentityDbContext>(Assembly.GetExecutingAssembly(), appSettings.ConnectionStrings.IdentityDBConnection)
                 .AddIdentityAssemblyServices();
 
         // Register RsaKeyProviderService as a singleton
@@ -19,13 +19,8 @@ public static class IdentityInfrastructureConfiguration
         return services;
     }
 
-    private static IServiceCollection AddIdentity(
-        this IServiceCollection services,
-        IConfiguration configuration)
+    private static IServiceCollection AddIdentity(this IServiceCollection services, ApplicationSettings appSettings)
     {
-        // Bind ApplicationSettings from configuration
-        var appSettings = configuration.GetSection("ApplicationSettings").Get<ApplicationSettings>();
-
         var resetTokenExpirationSeconds = appSettings.ResetTokenExpirationSeconds;
 
         services
@@ -60,8 +55,7 @@ public static class IdentityInfrastructureConfiguration
             .FromAssemblies(assembly)
             .AddClasses(classes => classes.InNamespaceOf<IdentityService>()) // <- better: typesafe
             .AsImplementedInterfaces()
-            .WithScopedLifetime()
-        );
+            .WithScopedLifetime());
 
         return services;
     }

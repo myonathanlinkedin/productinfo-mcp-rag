@@ -5,10 +5,5 @@ using System.Reflection;
 public static class IdentityModelConfiguration
 {
     public static IServiceCollection AddIdentityModelConfiguration(
-        this IServiceCollection services,
-        IConfiguration configuration)
-            => services
-            .AddCommonApplication(
-                configuration,
-                Assembly.GetExecutingAssembly());
+        this IServiceCollection services) => services.AddCommonApplication(Assembly.GetExecutingAssembly());
 }

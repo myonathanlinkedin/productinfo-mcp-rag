@@ -2,7 +2,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 
@@ -10,19 +9,22 @@ public static class InfrastructureConfiguration
 {
     public static IServiceCollection AddDBStorage<TDbContext>(
         this IServiceCollection services,
-        IConfiguration configuration,
-        Assembly assembly,
-        string connectionStringName)
+        Assembly assembly, 
+        string dbConnection)
         where TDbContext : DbContext
-        => services
-            .AddDatabase<TDbContext>(configuration, connectionStringName)
-            .AddRepositories(assembly);
-
-    public static IServiceCollection AddTokenAuthentication(
-        this IServiceCollection services,
-        IConfiguration configuration)
     {
-        var appSettings = configuration.GetSection("ApplicationSettings").Get<ApplicationSettings>()
+        using var scope = services.BuildServiceProvider().CreateScope();
+        var appSettings = scope.ServiceProvider.GetRequiredService<ApplicationSettings>();
+
+        return services
+            .AddDatabase<TDbContext>(dbConnection)
+            .AddRepositories(assembly);
+    }
+
+    public static IServiceCollection AddTokenAuthentication(this IServiceCollection services)
+    {
+        using var scope = services.BuildServiceProvider().CreateScope();
+        var appSettings = scope.ServiceProvider.GetRequiredService<ApplicationSettings>()
             ?? throw new ArgumentNullException(nameof(ApplicationSettings));
 
         services
@@ -42,7 +44,7 @@ public static class InfrastructureConfiguration
                     IssuerSigningKeyResolver = (token, securityToken, kid, validationParameters) =>
                     {
                         using var httpClient = new HttpClient();
-                        var jwkJson = httpClient.GetStringAsync(appSettings.JwtSettings.JwksUrl).GetAwaiter().GetResult();
+                        var jwkJson = httpClient.GetStringAsync(appSettings.Jwt.JwksUrl).GetAwaiter().GetResult();
                         var jwk = JsonSerializer.Deserialize<JsonWebKey>(jwkJson);
                         return new List<JsonWebKey> { jwk };
                     }
@@ -52,8 +54,7 @@ public static class InfrastructureConfiguration
                 {
                     OnAuthenticationFailed = context =>
                     {
-                        var ex = context.Exception;
-                        Console.WriteLine($"Token validation failed: {ex.Message}");
+                        Console.WriteLine($"Token validation failed: {context.Exception.Message}");
                         return Task.CompletedTask;
                     }
                 };
@@ -77,13 +78,12 @@ public static class InfrastructureConfiguration
 
     private static IServiceCollection AddDatabase<TDbContext>(
         this IServiceCollection services,
-        IConfiguration configuration,
-        string connectionStringName)
+        string connectionString)
         where TDbContext : DbContext
         => services
             .AddDbContext<TDbContext>(options => options
                 .UseSqlServer(
-                    connectionStringName,
+                    connectionString,
                     sqlOptions => sqlOptions
                         .EnableRetryOnFailure(
                             maxRetryCount: 10,
@@ -91,9 +91,7 @@ public static class InfrastructureConfiguration
                             errorNumbersToAdd: null)
                         .MigrationsAssembly(typeof(TDbContext).Assembly.FullName)));
 
-    internal static IServiceCollection AddRepositories(
-        this IServiceCollection services,
-        Assembly assembly)
+    internal static IServiceCollection AddRepositories(this IServiceCollection services, Assembly assembly)
         => services
             .Scan(scan => scan
                 .FromAssemblies(assembly)

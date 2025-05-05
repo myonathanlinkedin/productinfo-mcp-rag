@@ -1,44 +1,42 @@
 ﻿using Newtonsoft.Json;
-using System.Net.Http;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Linq;
 
 public class EmbeddingService : IEmbeddingService
 {
     private readonly HttpClient httpClient;
-    private readonly ApplicationSettings applicationSettings;
+    private readonly string embeddingModel;
+    private readonly string endpoint;
 
     public EmbeddingService(HttpClient httpClient, ApplicationSettings applicationSettings)
     {
         this.httpClient = httpClient;
-        this.applicationSettings = applicationSettings;
+        embeddingModel = applicationSettings.Api.EmbeddingModel;
+        endpoint = $"{applicationSettings.Api.Endpoint}/embeddings";
     }
 
     public async Task<float[]> GenerateEmbeddingAsync(string input, CancellationToken cancellationToken)
     {
-        var requestBody = new { model = applicationSettings.Api.EmbeddingModel, input };
-        var jsonRequest = JsonConvert.SerializeObject(requestBody);
-        var contentRequest = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
-        var endpoint = $"{applicationSettings.Api.Endpoint}/embeddings";
+        var requestBody = new { model = embeddingModel, input };
+        var contentRequest = CreateJsonContent(requestBody);
 
         var response = await httpClient.PostAsync(endpoint, contentRequest, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
 
         if (!response.IsSuccessStatusCode)
-        {
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new Exception($"Failed to generate embedding. Status Code: {response.StatusCode}. Response: {responseBody}");
-        }
+            throw new HttpRequestException($"Embedding request failed. Status: {response.StatusCode}. Response: {responseBody}");
 
-        var responseString = await response.Content.ReadAsStringAsync(cancellationToken);
-        var embeddingResponse = JsonConvert.DeserializeObject<EmbeddingResponse>(responseString)
-            ?? throw new Exception("Failed to deserialize embedding response.");
+        return ParseEmbeddingResponse(responseBody);
+    }
 
-        // Use null propagation and throw expression for more concise error handling.
-        var embeddingData = embeddingResponse.Data?.FirstOrDefault()?.Embedding
-            ?? throw new Exception("Embedding response contains no data.");
+    private static StringContent CreateJsonContent(object requestBody) =>
+        new StringContent(JsonConvert.SerializeObject(requestBody), Encoding.UTF8, "application/json");
 
-        return embeddingData;
+    private static float[] ParseEmbeddingResponse(string responseBody)
+    {
+        var embeddingResponse = JsonConvert.DeserializeObject<EmbeddingResponse>(responseBody)
+            ?? throw new JsonException("Failed to deserialize embedding response.");
+
+        return embeddingResponse.Data?.FirstOrDefault()?.Embedding
+            ?? throw new InvalidOperationException("Embedding response contains no data.");
     }
 }

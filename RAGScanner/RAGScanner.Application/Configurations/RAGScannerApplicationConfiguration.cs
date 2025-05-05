@@ -5,9 +5,5 @@ using System.Reflection;
 public static class RAGScannerApplicationConfiguration
 {
     public static IServiceCollection AddRAGScannerApplication(
-        this IServiceCollection services,
-        IConfiguration configuration)
-             => services.AddCommonApplication(
-                        configuration,
-                        Assembly.GetExecutingAssembly());
+        this IServiceCollection services) => services.AddCommonApplication(Assembly.GetExecutingAssembly());
 }

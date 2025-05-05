@@ -1,27 +1,23 @@
 ﻿using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol.Transport;
 using OpenAI;
-using System;
 using System.ClientModel;
-using System.Collections.Generic;
 
 public static class McpClientServiceExtensions
 {
-    public static IServiceCollection AddMcpClient(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddMcpClient(this IServiceCollection services)
     {
-        // Bind ApplicationSettings from configuration
-        var applicationSettings = configuration.GetSection("ApplicationSettings").Get<ApplicationSettings>();
+        using var scope = services.BuildServiceProvider().CreateScope();
+        var appSettings = scope.ServiceProvider.GetRequiredService<ApplicationSettings>();
 
-        // Retrieve the necessary values from ApplicationSettings
-        var llmModel = applicationSettings.Api.LlmModel;
-        var apiKey = applicationSettings.Api.ApiKey;
-        var endpoint = applicationSettings.Api.Endpoint;
-        var serverEndpoint = applicationSettings.MCP.Endpoint;
-        var serverName = applicationSettings.MCP.ServerName;
+        var llmModel = appSettings.Api.LlmModel;
+        var apiKey = appSettings.Api.ApiKey;
+        var endpoint = appSettings.Api.Endpoint;
+        var serverEndpoint = appSettings.MCP.Endpoint;
+        var serverName = appSettings.MCP.ServerName;
 
         // Register OpenAI Client
         services.AddScoped(sp =>
@@ -37,6 +33,7 @@ public static class McpClientServiceExtensions
         {
             var openAIClient = sp.GetRequiredService<OpenAIClient>();
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+
             var chatClient = openAIClient.GetChatClient(llmModel)
                 .AsIChatClient()
                 .AsBuilder()
@@ -51,6 +48,7 @@ public static class McpClientServiceExtensions
         {
             var openAIClient = sp.GetRequiredService<OpenAIClient>();
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+
             return openAIClient.GetChatClient(llmModel)
                 .AsIChatClient()
                 .AsBuilder()

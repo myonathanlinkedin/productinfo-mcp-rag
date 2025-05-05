@@ -1,81 +1,41 @@
 ﻿using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using System.Text;
+using Qdrant.Client;
+using Qdrant.Client.Grpc;
 
 public class RetrieverService : IRetrieverService
 {
     private readonly ILogger<RetrieverService> logger;
-    private readonly HttpClient httpClient;
+    private readonly QdrantClient qdrantClient;
+    private readonly ApplicationSettings appSettings;
     private readonly IEmbeddingService embeddingService;
-    private readonly int defaultTopK = 10;
-    private readonly int maxTopK = 50;
-    private readonly ApplicationSettings applicationSettings;
+    private const uint DefaultTopK = 10;
 
     public RetrieverService(
         ILogger<RetrieverService> logger,
-        HttpClient httpClient,
-        IEmbeddingService embeddingService,
-        ApplicationSettings applicationSettings)
+        QdrantClient qdrantClient,
+        ApplicationSettings appSettings,
+        IEmbeddingService embeddingService)
     {
         this.logger = logger;
-        this.httpClient = httpClient;
+        this.qdrantClient = qdrantClient;
+        this.appSettings = appSettings;
         this.embeddingService = embeddingService;
-        this.applicationSettings = applicationSettings;
     }
 
     public async Task<Result<List<DocumentVector>>> RetrieveAllDocumentsAsync(CancellationToken cancellationToken)
     {
-        logger.LogInformation("Retrieving all documents from vector store (full fetch)");
-
-        var endpoint = $"{applicationSettings.Qdrant.Endpoint}/collections/{applicationSettings.Qdrant.CollectionName}/points/scroll";
-        int offset = 0;
-        int limit = GetSmartLimit();
-        var allDocumentVectors = new List<DocumentVector>();
+        logger.LogInformation("Retrieving all documents from vector store");
 
         try
         {
-            while (true)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var payload = new { limit, offset, with_payload = true, with_vector = true };
-                var jsonContent = JsonConvert.SerializeObject(payload);
-                var requestContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                var response = await httpClient.PostAsync(endpoint, requestContent, cancellationToken);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var responseBody = await response.Content.ReadAsStringAsync();
-                    logger.LogError("Failed to retrieve vectors. StatusCode: {StatusCode}, Response: {ResponseBody}", response.StatusCode, responseBody);
-                    return Result<List<DocumentVector>>.Failure(new List<string> { "Failed to retrieve vectors from Qdrant." });
-                }
-
-                var responseBodyContent = await response.Content.ReadAsStringAsync();
-                var qdrantResponse = JsonConvert.DeserializeObject<QdrantQueryResponse>(responseBodyContent);
-
-                if (qdrantResponse?.Result == null || !qdrantResponse.Result.Any())
-                {
-                    break;
-                }
-
-                // Use Select and ToList to transform and collect results
-                var newVectors = qdrantResponse.Result.Select(MapResultToDocumentVector).ToList();
-                allDocumentVectors.AddRange(newVectors);
-                offset += limit;
-
-                if (allDocumentVectors.Count >= maxTopK * 100)
-                {
-                    logger.LogInformation("Reached maximum cap for all document retrieval.");
-                    break;
-                }
-            }
+            var searchResult = await qdrantClient.ScrollAsync(appSettings.Qdrant.CollectionName, limit: GetSmartLimit());
+            return Result<List<DocumentVector>>.SuccessWith(ConvertToDocumentVectors<RetrievedPoint>(searchResult.Result));
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error during full document retrieval.");
-            return Result<List<DocumentVector>>.Failure(new List<string> { "Error during document retrieval." });
+            logger.LogError(ex, "Error retrieving all documents.");
+            return Result<List<DocumentVector>>.Failure(new List<string> { "Error retrieving documents." });
         }
-
-        return Result<List<DocumentVector>>.SuccessWith(allDocumentVectors);
     }
 
     public async Task<Result<List<DocumentVector>>> RetrieveDocumentsByQueryAsync(string queryText, CancellationToken cancellationToken)
@@ -85,86 +45,72 @@ public class RetrieverService : IRetrieverService
         var embeddingVector = await embeddingService.GenerateEmbeddingAsync(queryText, cancellationToken);
         if (embeddingVector == null || embeddingVector.Length == 0)
         {
-            logger.LogError("Failed to generate embedding for query text.");
+            logger.LogError("Failed to generate embedding.");
             return Result<List<DocumentVector>>.Failure(new List<string> { "Embedding generation failed." });
         }
 
-        var endpoint = $"{applicationSettings.Qdrant.Endpoint}/collections/{applicationSettings.Qdrant.CollectionName}/points/search";
-        int topK = GetSmartTopK();
-        var payload = new { vector = embeddingVector, top = topK, with_payload = true, with_vector = true };
-        var jsonContent = JsonConvert.SerializeObject(payload);
-        var requestContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-
         try
         {
-            var response = await httpClient.PostAsync(endpoint, requestContent, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                var responseBody = await response.Content.ReadAsStringAsync();
-                logger.LogError("Failed to search vectors. StatusCode: {StatusCode}, Response: {ResponseBody}", response.StatusCode, responseBody);
-                return Result<List<DocumentVector>>.Failure(new List<string> { "Failed to search vectors in Qdrant." });
-            }
-
-            var responseBodyContent = await response.Content.ReadAsStringAsync();
-            var qdrantResponse = JsonConvert.DeserializeObject<QdrantQueryResponse>(responseBodyContent);
-
-            // Use null propagation and Select to handle nulls and transform the result
-            var matchingDocuments = qdrantResponse?.Result?.Select(MapResultToDocumentVector).ToList() ?? new List<DocumentVector>();
-
-            return Result<List<DocumentVector>>.SuccessWith(matchingDocuments);
+            var searchResult = await qdrantClient.SearchAsync(appSettings.Qdrant.CollectionName, embeddingVector, limit: GetSmartTopK());
+            return Result<List<DocumentVector>>.SuccessWith(ConvertToDocumentVectors<ScoredPoint>(searchResult));
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during document search.");
-            return Result<List<DocumentVector>>.Failure(new List<string> { "Error during document search." });
+            return Result<List<DocumentVector>>.Failure(new List<string> { "Error during search." });
         }
     }
 
-    private DocumentVector MapResultToDocumentVector(QdrantResult result) =>
-        new DocumentVector
+    private List<DocumentVector> ConvertToDocumentVectors<T>(IReadOnlyList<T> points) where T : class
+    {
+        return points.Select(point => new DocumentVector
         {
-            Metadata = new DocumentMetadata
-            {
-                Id = new Guid(result.Id),
-                Url = result.Payload?.Url,
-                SourceType = result.Payload?.SourceType,
-                Content = result.Payload?.Content,
-                Title = result.Payload?.Title,
-                ScrapedAt = result.Payload?.ScrapedAt ?? default(DateTime)
-            },
-            Embedding = result.Vector.ToArray()
+            Metadata = MapMetadata(point),
+            Embedding = GetEmbeddingData(point)
+        }).ToList();
+    }
+
+    private DocumentMetadata MapMetadata<T>(T point) where T : class
+    {
+        var payload = GetPayloadDictionary(point);
+        return new DocumentMetadata
+        {
+            Id = Guid.TryParse(GetUuid(point), out var guid) ? guid : Guid.Empty,
+            Url = payload.TryGetValue("url", out var urlValue) ? urlValue.StringValue : string.Empty,
+            SourceType = payload.TryGetValue("sourceType", out var sourceTypeValue) ? sourceTypeValue.StringValue : string.Empty,
+            Content = payload.TryGetValue("content", out var contentValue) ? contentValue.StringValue : string.Empty,
+            Title = payload.TryGetValue("title", out var titleValue) ? titleValue.StringValue : string.Empty,
+            ScrapedAt = payload.TryGetValue("scrapedAt", out var scrapedAtValue) &&
+                        DateTime.TryParse(scrapedAtValue.StringValue, out var scrapedAt)
+                        ? scrapedAt
+                        : default
+        };
+    }
+
+    private static Dictionary<string, Value> GetPayloadDictionary<T>(T point) where T : class =>
+        point switch
+        {
+            RetrievedPoint retrieved => retrieved.Payload.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            ScoredPoint scored => scored.Payload.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            _ => new Dictionary<string, Value>()
         };
 
-    private int GetSmartTopK()
-    {
-        return SystemUnderLoad() ? Math.Max(3, defaultTopK / 2) : defaultTopK;
-    }
+    private static string GetUuid<T>(T point) where T : class =>
+        point switch
+        {
+            RetrievedPoint retrieved => retrieved.Id?.Uuid ?? string.Empty,
+            ScoredPoint scored => scored.Id?.Uuid ?? string.Empty,
+            _ => string.Empty
+        };
 
-    private int GetSmartLimit()
-    {
-        return SystemUnderLoad() ? Math.Max(100, defaultTopK * 5) : defaultTopK * 10;
-    }
+    private static float[] GetEmbeddingData<T>(T point) where T : class =>
+        point switch
+        {
+            RetrievedPoint retrieved => retrieved.Vectors?.Vector?.Data?.ToArray() ?? Array.Empty<float>(),
+            ScoredPoint scored => scored.Vectors?.Vector?.Data?.ToArray() ?? Array.Empty<float>(),
+            _ => Array.Empty<float>()
+        };
 
-    private bool SystemUnderLoad()
-    {
-        const double cpuThreshold = 80.0;
-        const long memoryThresholdBytes = 80L * 1024 * 1024 * 1024;
-        double cpuUsage = GetCpuUsagePercentage();
-        long memoryUsage = GetMemoryUsage();
-        return cpuUsage > cpuThreshold || memoryUsage > memoryThresholdBytes;
-    }
-
-    private double GetCpuUsagePercentage()
-    {
-        using var cpuCounter = new System.Diagnostics.PerformanceCounter("Processor", "% Processor Time", "_Total");
-        cpuCounter.NextValue();
-        Thread.Sleep(500);
-        return cpuCounter.NextValue();
-    }
-
-    private long GetMemoryUsage()
-    {
-        var gcMemoryInfo = GC.GetGCMemoryInfo();
-        return gcMemoryInfo.TotalCommittedBytes - gcMemoryInfo.TotalAvailableMemoryBytes;
-    }
+    private uint GetSmartTopK() => DefaultTopK;
+    private uint GetSmartLimit() => DefaultTopK * 10;
 }
