@@ -1,90 +1,112 @@
 ﻿using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
-using System.Net;
-using System.Text;
+using Qdrant.Client;
+using Qdrant.Client.Grpc;
 
 public class VectorStoreService : IVectorStoreService
 {
     private readonly ILogger<VectorStoreService> logger;
-    private readonly HttpClient httpClient;
+    private readonly QdrantClient qdrantClient;
     private readonly ApplicationSettings.QdrantSettings qdrantSettings;
-    private readonly string baseEndpoint;
     private readonly float similarityThreshold;
 
     public VectorStoreService(
         ILogger<VectorStoreService> logger,
-        ApplicationSettings appSettings,
-        HttpClient httpClient)
+        ApplicationSettings appSettings)
     {
         this.logger = logger;
         qdrantSettings = appSettings.Qdrant;
-        this.httpClient = httpClient;
-        baseEndpoint = qdrantSettings.Endpoint.TrimEnd('/');
         similarityThreshold = appSettings.Qdrant.SimilarityThreshold;
+
+        // Initialize the Qdrant client
+        var uri = new Uri(qdrantSettings.Endpoint);
+
+        // Set up the client configuration depending on whether HTTPS is used
+        if (uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+        {
+            // Check if API key is provided
+            if (!string.IsNullOrEmpty(qdrantSettings.ApiKey))
+            {
+                qdrantClient = new QdrantClient(
+                    host: uri.Host,
+                    port: uri.Port != -1 ? uri.Port : 6334,
+                    https: true,
+                    apiKey: qdrantSettings.ApiKey);
+            }
+            else
+            {
+                qdrantClient = new QdrantClient(
+                    host: uri.Host,
+                    port: uri.Port != -1 ? uri.Port : 6334,
+                    https: true);
+            }
+        }
+        else
+        {
+            // Check if API key is provided
+            if (!string.IsNullOrEmpty(qdrantSettings.ApiKey))
+            {
+                qdrantClient = new QdrantClient(
+                    host: uri.Host,
+                    port: uri.Port != -1 ? uri.Port : 6333,
+                    apiKey: qdrantSettings.ApiKey);
+            }
+            else
+            {
+                qdrantClient = new QdrantClient(
+                    host: uri.Host,
+                    port: uri.Port != -1 ? uri.Port : 6333);
+            }
+        }
     }
 
     // Ensure collection exists
     private async Task EnsureCollectionExistsAsync(int vectorSize)
     {
-        var endpoint = $"{baseEndpoint}/collections/{qdrantSettings.CollectionName}";
-        var response = await httpClient.GetAsync(endpoint);
+        try
+        {
+            var collections = await qdrantClient.ListCollectionsAsync();
+            bool collectionExists = collections.Any(c => c == qdrantSettings.CollectionName);
 
-        if (!response.IsSuccessStatusCode)
-        {
-            logger.LogWarning("Collection '{CollectionName}' not found. Attempting to create it.", qdrantSettings.CollectionName);
-            await CreateCollectionAsync(vectorSize);
+            if (!collectionExists)
+            {
+                logger.LogWarning("Collection '{CollectionName}' not found. Attempting to create it.", qdrantSettings.CollectionName);
+                await CreateCollectionAsync(vectorSize);
+            }
+            else
+            {
+                logger.LogInformation("Collection '{CollectionName}' exists.", qdrantSettings.CollectionName);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            logger.LogInformation("Collection '{CollectionName}' exists.", qdrantSettings.CollectionName);
+            logger.LogError(ex, "Error checking collection existence");
+            throw;
         }
     }
 
     // Create collection if doesn't exist
     private async Task CreateCollectionAsync(int vectorSize)
     {
-        var endpoint = $"{baseEndpoint}/collections/{qdrantSettings.CollectionName}";
-
         try
         {
-            var collectionExists = await CollectionExistsAsync();
+            // Check if collection exists first to avoid unnecessary create attempt
+            var collections = await qdrantClient.ListCollectionsAsync();
+            bool collectionExists = collections.Any(c => c == qdrantSettings.CollectionName);
+
             if (collectionExists)
             {
                 logger.LogInformation("Collection '{CollectionName}' already exists in Qdrant. Skipping creation.", qdrantSettings.CollectionName);
-                return; // Skip creation if collection exists
+                return;
             }
 
-            var payload = new
-            {
-                vectors = new
+            // Create the collection
+            await qdrantClient.CreateCollectionAsync(
+                collectionName: qdrantSettings.CollectionName,
+                vectorsConfig: new VectorParams
                 {
-                    size = vectorSize,
-                    distance = "Cosine"
-                }
-            };
-
-            var jsonContent = JsonConvert.SerializeObject(payload);
-            var requestContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-            var response = await httpClient.PutAsync(endpoint, requestContent);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var responseBody = await response.Content.ReadAsStringAsync();
-                var errorMessage = $"Failed to create collection in Qdrant. Status code: {response.StatusCode}";
-                logger.LogError(
-                    "Failed to create collection in Qdrant. StatusCode: {StatusCode}, Reason: {ReasonPhrase}, Response: {ResponseBody}",
-                    response.StatusCode, response.ReasonPhrase, responseBody);
-
-                // Log and continue if conflict occurs (409 Conflict)
-                if (response.StatusCode == HttpStatusCode.Conflict)
-                {
-                    logger.LogInformation("Collection '{CollectionName}' already exists. Skipping creation.", qdrantSettings.CollectionName);
-                    return; // Skip creation if conflict (409)
-                }
-
-                // For other errors, throw an exception
-                throw new Exception(errorMessage);
-            }
+                    Size = (ulong)vectorSize,
+                    Distance = Distance.Cosine
+                });
 
             logger.LogInformation("Successfully created collection '{CollectionName}' in Qdrant.", qdrantSettings.CollectionName);
         }
@@ -93,30 +115,6 @@ public class VectorStoreService : IVectorStoreService
             logger.LogError(ex, "Error during collection creation in Qdrant.");
             // Continue processing, do not throw an exception to allow insertion to proceed
         }
-    }
-
-    // Check if collection exists
-    private async Task<bool> CollectionExistsAsync()
-    {
-        var checkEndpoint = $"{baseEndpoint}/collections/{qdrantSettings.CollectionName}";
-        var response = await httpClient.GetAsync(checkEndpoint);
-
-        if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            return false; // Collection doesn't exist
-        }
-
-        if (response.IsSuccessStatusCode)
-        {
-            return true; // Collection exists
-        }
-
-        var responseBody = await response.Content.ReadAsStringAsync();
-        logger.LogError(
-            "Error checking collection existence. StatusCode: {StatusCode}, Response: {ResponseBody}",
-            response.StatusCode, responseBody);
-
-        return false; // Proceed with creation in case of any other errors
     }
 
     // Save document vector after checking for similar vectors
@@ -144,84 +142,69 @@ public class VectorStoreService : IVectorStoreService
         }
     }
 
-    // Fix for CS1525 and CS0746 errors
     private async Task<bool> IsVectorSimilarAsync(float[] queryVector)
     {
-        var endpoint = $"{baseEndpoint}/collections/{qdrantSettings.CollectionName}/points/search";
-        var payload = new
+        try
         {
-            vector = queryVector,
-            limit = 5,  // Get the top 5 similar vectors
-            @params = new { method = "cosine" } // Use @ to escape the reserved keyword 'params'
-        };
+            var searchResult = await qdrantClient.SearchAsync(
+                collectionName: qdrantSettings.CollectionName,
+                vector: queryVector,
+                limit: 5  // Get the top 5 similar vectors
+            );
 
-        var jsonContent = JsonConvert.SerializeObject(payload);
-        var requestContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-        var response = await httpClient.PostAsync(endpoint, requestContent);
+            // Compare cosine similarity to the top result
+            if (searchResult.Any())
+            {
+                var mostSimilarVector = searchResult.First();
+                var similarityScore = mostSimilarVector.Score;
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var responseBody = await response.Content.ReadAsStringAsync();
-            logger.LogError(
-                "Error during vector search in Qdrant. StatusCode: {StatusCode}, Reason: {ReasonPhrase}, Response: {ResponseBody}",
-                response.StatusCode, response.ReasonPhrase, responseBody);
-            throw new Exception("Error during vector search.");
+                // Return true if the similarity score is greater than or equal to the threshold
+                return similarityScore >= similarityThreshold;
+            }
+
+            return false; // No similar vectors found, so it's safe to insert
         }
-
-        var responseBodyContent = await response.Content.ReadAsStringAsync();
-        var qdrantResponse = JsonConvert.DeserializeObject<QdrantQueryResponse>(responseBodyContent);
-
-        // Compare cosine similarity to the top result
-        if (qdrantResponse?.Result?.Any() == true)
+        catch (Exception ex)
         {
-            var mostSimilarVector = qdrantResponse.Result.First();
-            var similarityScore = mostSimilarVector.Score;
-
-            // Return true if the similarity score is greater than or equal to the threshold
-            return similarityScore >= similarityThreshold;
+            logger.LogError(ex, "Error searching for similar vectors in Qdrant.");
+            throw;
         }
-
-        return false; // No similar vectors found, so it's safe to insert
     }
 
     // Insert vector into Qdrant
     private async Task InsertVectorAsync(DocumentVector documentVector)
     {
-        var payload = new
+        try
         {
-            points = new[]
+            var pointId = new PointId { Uuid = Guid.NewGuid().ToString() };
+
+            var payload = new Dictionary<string, Value>
             {
-                new
-                {
-                    id = Guid.NewGuid().ToString(),
-                    vector = documentVector.Embedding,
-                    payload = new
-                    {
-                        url = documentVector.Metadata.Url,
-                        sourceType = documentVector.Metadata.SourceType,
-                        title = documentVector.Metadata.Title,
-                        content = documentVector.Metadata.Content,
-                        scrapedAt = documentVector.Metadata.ScrapedAt
-                    }
-                }
-            }
-        };
+                ["url"] = new Value { StringValue = documentVector.Metadata.Url },
+                ["sourceType"] = new Value { StringValue = documentVector.Metadata.SourceType },
+                ["title"] = new Value { StringValue = documentVector.Metadata.Title },
+                ["content"] = new Value { StringValue = documentVector.Metadata.Content },
+                ["scrapedAt"] = new Value { StringValue = documentVector.Metadata.ScrapedAt.ToString() }
+            };
 
-        var jsonContent = JsonConvert.SerializeObject(payload);
-        var requestContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-        var endpoint = $"{baseEndpoint}/collections/{qdrantSettings.CollectionName}/points";
-        var response = await httpClient.PutAsync(endpoint, requestContent);
+            var point = new PointStruct
+            {
+                Id = pointId,
+                Vectors = new Vectors { Vector = new Vector { Data = { documentVector.Embedding } } },
+                Payload = { payload }
+            };
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var responseBody = await response.Content.ReadAsStringAsync();
-            var errorMessage = $"Failed to save vector to Qdrant. Status code: {response.StatusCode}";
-            logger.LogError(
-                "Failed to save vector to Qdrant. StatusCode: {StatusCode}, Reason: {ReasonPhrase}, Response: {ResponseBody}",
-                response.StatusCode, response.ReasonPhrase, responseBody);
-            throw new Exception(errorMessage);
+            await qdrantClient.UpsertAsync(
+                collectionName: qdrantSettings.CollectionName,
+                points: new List<PointStruct> { point }
+            );
+
+            logger.LogInformation("Successfully saved vector for URL: {Url}", documentVector.Metadata.Url);
         }
-
-        logger.LogInformation("Successfully saved vector for URL: {Url}", documentVector.Metadata.Url);
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to save vector to Qdrant: {ErrorMessage}", ex.Message);
+            throw;
+        }
     }
 }

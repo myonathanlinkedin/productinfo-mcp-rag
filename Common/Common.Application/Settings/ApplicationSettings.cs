@@ -28,6 +28,7 @@
         public string Endpoint { get; set; }
         public string CollectionName { get; set; }
         public float SimilarityThreshold { get; set; }
+        public string ApiKey { get; set; }
     }
 
     public class SubClassConnectionStrings
