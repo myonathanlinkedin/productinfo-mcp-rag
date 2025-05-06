@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.Extensions.Logging;
 
-public class ChangePasswordEventHandler : EmailNotificationHandlerBase<PasswordChangedEvent>
+public class ChangePasswordEventHandler : IdentityEmailNotificationHandlerBase<PasswordChangedEvent>
 {
     public ChangePasswordEventHandler(
         IEmailSender emailSenderService,

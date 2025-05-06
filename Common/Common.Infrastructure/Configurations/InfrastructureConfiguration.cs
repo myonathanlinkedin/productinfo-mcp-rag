@@ -54,7 +54,9 @@ public static class InfrastructureConfiguration
                 {
                     OnAuthenticationFailed = context =>
                     {
+                        var token = context.Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "");
                         Console.WriteLine($"Token validation failed: {context.Exception.Message}");
+                        Console.WriteLine($"JWT Token: {token}");
                         return Task.CompletedTask;
                     }
                 };

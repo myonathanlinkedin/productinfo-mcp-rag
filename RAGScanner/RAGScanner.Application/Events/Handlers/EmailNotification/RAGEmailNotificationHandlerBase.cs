@@ -2,21 +2,21 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
-public abstract class EmailNotificationHandlerBase<TEvent> : IEventHandler<TEvent>
-        where TEvent : IDomainEvent
+public abstract class RAGEmailNotificationHandlerBase<TEvent> : IEventHandler<TEvent>
+    where TEvent : IDomainEvent
 {
     private readonly IEmailSender emailSenderService;
     private readonly IMCPServerRequester mcpServerRequester;
-    private readonly ILogger logger;
+    private readonly ILogger<RAGEmailNotificationHandlerBase<TEvent>> logger;
 
-    protected EmailNotificationHandlerBase(
+    protected RAGEmailNotificationHandlerBase(
         IEmailSender emailSenderService,
         IMCPServerRequester mcpServerRequester,
-        ILogger logger)
+        ILogger<RAGEmailNotificationHandlerBase<TEvent>> logger)
     {
-        this.emailSenderService = emailSenderService;
-        this.mcpServerRequester = mcpServerRequester;
-        this.logger = logger;
+        this.emailSenderService = emailSenderService ?? throw new ArgumentNullException(nameof(emailSenderService));
+        this.mcpServerRequester = mcpServerRequester ?? throw new ArgumentNullException(nameof(mcpServerRequester));
+        this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async Task Handle(TEvent domainEvent)
@@ -26,15 +26,13 @@ public abstract class EmailNotificationHandlerBase<TEvent> : IEventHandler<TEven
         logger.LogInformation("Requesting email body generation for: {Email}", email);
         var result = await mcpServerRequester.RequestAsync(prompt, ChatRole.User, false);
 
-        if (!result.Succeeded)
+        if (result == null || !result.Succeeded)
         {
-            logger.LogError("Failed to generate email body for: {Email}. Reason: {Errors}", email, result.Errors);
+            logger.LogError("Failed to generate email body for: {Email}. Reason: {Errors}", email, result?.Errors);
             return;
         }
 
-        var body = result.Data.Replace("[EMAIL]", email);
-        if (!string.IsNullOrEmpty(password))
-            body = body.Replace("[PASSWORD]", password).Replace("[NEW_PASSWORD]", password);
+        var body = result.Data;
 
         var fullHtml = $"""
                         <html>

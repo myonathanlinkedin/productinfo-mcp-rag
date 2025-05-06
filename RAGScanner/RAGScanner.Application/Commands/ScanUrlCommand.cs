@@ -1,11 +1,11 @@
 ﻿using Hangfire;
 using MediatR;
 
-public class ScanUrlCommand : IRequest<Result>
+public class ScanUrlCommand : BaseCommand<ScanUrlCommand>, IRequest<Result>
 {
     public List<string> Urls { get; set; } = new();
 
-    public class ScanUrlCommandHandler : IRequestHandler<ScanUrlCommand, Result>
+    public class ScanUrlCommandHandler : IRequestHandler<UserRequestWrapper<ScanUrlCommand>, Result>
     {
         private readonly IBackgroundJobClient jobClient;
         private readonly IJobStatusRepository jobStatusStore;
@@ -16,22 +16,30 @@ public class ScanUrlCommand : IRequest<Result>
             this.jobStatusStore = jobStatusStore;
         }
 
-        public Task<Result> Handle(ScanUrlCommand request, CancellationToken cancellationToken)
+        public async Task<Result> Handle(UserRequestWrapper<ScanUrlCommand> request, CancellationToken cancellationToken)
         {
-            if (request.Urls == null || !request.Urls.Any())
+            var command = request.Request;
+            var user = request.User;
+
+            if (command.Urls == null || !command.Urls.Any())
             {
-                return Task.FromResult(Result.Failure(new[] { "No URLs provided for scanning." }));
+                return Result.Failure(new[] { "No URLs provided for scanning." });
             }
 
-            request.Urls
-                .Select(url => (JobId: jobStatusStore.CreateJobAsync([url]).Result, Url: url))
-                .ToList()
-                .ForEach(job =>
-                    jobClient.Enqueue<IUrlScanJobService>(svc =>
-                        svc.ProcessAsync(new List<string> { job.Url }, new Guid(job.JobId))));
+            if (string.IsNullOrEmpty(user.Email))
+            {
+                return Result.Failure(new[] { "Authenticated user does not have a valid email." });
+            }
 
+            var jobs = await Task.WhenAll(command.Urls.Select(url => jobStatusStore.CreateJobAsync(new List<string> { url })));
 
-            return Task.FromResult(Result.Success);
+            foreach (var (url, jobId) in command.Urls.Zip(jobs))
+            {
+                jobClient.Enqueue<IUrlScanJobService>(svc =>
+                    svc.ProcessAsync(new List<string> { url }, new Guid(jobId), user.Email));
+            }
+
+            return Result.Success;
         }
     }
 }

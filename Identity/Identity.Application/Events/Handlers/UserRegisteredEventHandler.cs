@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.Extensions.Logging;
 
-public class UserRegisteredEventHandler : EmailNotificationHandlerBase<UserRegisteredEvent>
+public class UserRegisteredEventHandler : IdentityEmailNotificationHandlerBase<UserRegisteredEvent>
 {
     public UserRegisteredEventHandler(
         IEmailSender emailSenderService,

@@ -7,6 +7,7 @@ public class UrlScanJobService : IUrlScanJobService
     private readonly IVectorStoreService vectorStore;
     private readonly IEmbeddingService embeddingService;
     private readonly IJobStatusRepository jobStatusRepository;
+    private readonly IEventDispatcher eventDispatcher;
     private readonly ILogger<UrlScanJobService> logger;
 
     public UrlScanJobService(
@@ -15,6 +16,7 @@ public class UrlScanJobService : IUrlScanJobService
         IVectorStoreService vectorStore,
         IEmbeddingService embeddingService,
         IJobStatusRepository jobStatusRepository,
+        IEventDispatcher eventDispatcher,
         ILogger<UrlScanJobService> logger)
     {
         this.scraperService = scraperService;
@@ -22,10 +24,11 @@ public class UrlScanJobService : IUrlScanJobService
         this.vectorStore = vectorStore;
         this.embeddingService = embeddingService;
         this.jobStatusRepository = jobStatusRepository;
+        this.eventDispatcher = eventDispatcher;
         this.logger = logger;
     }
 
-    public async Task ProcessAsync(List<string> urls, Guid jobId)
+    public async Task ProcessAsync(List<string> urls, Guid jobId, string uploaderEmail)
     {
         await UpdateJobStatusAsync(jobId, JobStatusType.InProgress, "Processing");
 
@@ -33,6 +36,7 @@ public class UrlScanJobService : IUrlScanJobService
         if (!scrapedDocs.Any())
         {
             await UpdateJobStatusAsync(jobId, JobStatusType.Failed, "Nothing scraped.");
+            await DispatchScanEvent("N/A", uploaderEmail, "Failed", null, "No content available");
             return;
         }
 
@@ -43,6 +47,15 @@ public class UrlScanJobService : IUrlScanJobService
 
         await Task.WhenAll(tasks);
         await UpdateJobStatusAsync(jobId, JobStatusType.Completed, "Completed");
+
+        foreach (var doc in scrapedDocs)
+        {
+            var parsedPages = ParseDocumentPages(doc);
+            foreach (var (content, index) in parsedPages.Select((page, idx) => (page.Content, idx)))
+            {
+                await DispatchScanEvent(doc.Url, uploaderEmail, "Success", doc.IsPdf ? index + 1 : null, content);
+            }
+        }
     }
 
     private async Task<IEnumerable<ScrapedDocument>> TryScrapeAsync(List<string> urls)
@@ -70,7 +83,7 @@ public class UrlScanJobService : IUrlScanJobService
         var metadata = new DocumentMetadata
         {
             Url = doc.Url,
-            Title = doc.IsPdf ? $"Page {pageContent.Index + 1}" : ExtractTitle(doc.ContentText), // ✅ Extract title only for HTML
+            Title = doc.IsPdf ? $"Page {pageContent.Index + 1}" : ExtractTitle(doc.ContentText),
             SourceType = doc.IsPdf ? "pdf" : "html",
             Content = pageContent.Content,
             ScrapedAt = DateTime.UtcNow
@@ -88,6 +101,11 @@ public class UrlScanJobService : IUrlScanJobService
         {
             logger.LogError(ex, "Failed to update job status.");
         }
+    }
+
+    private async Task DispatchScanEvent(string documentUrl, string uploaderEmail, string status, int? pageNumber, string contentSnippet)
+    {
+        await eventDispatcher.Dispatch(new DocumentScanEvent(documentUrl, DateTime.UtcNow, uploaderEmail, status, pageNumber, contentSnippet));
     }
 
     private string ExtractTitle(string html)

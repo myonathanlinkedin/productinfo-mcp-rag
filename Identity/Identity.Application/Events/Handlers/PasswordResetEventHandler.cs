@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.Extensions.Logging;
 
-public class PasswordResetEventHandler : EmailNotificationHandlerBase<PasswordResetEvent>
+public class PasswordResetEventHandler : IdentityEmailNotificationHandlerBase<PasswordResetEvent>
 {
     public PasswordResetEventHandler(
         IEmailSender emailSenderService,
