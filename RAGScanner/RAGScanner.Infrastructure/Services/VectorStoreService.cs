@@ -12,7 +12,7 @@ public class VectorStoreService : IVectorStoreService
     public VectorStoreService(
         ILogger<VectorStoreService> logger,
         QdrantClient qdrantClient,
-        ApplicationSettings qdrantSettings)
+        ApplicationSettings appSettings)
     {
         this.logger = logger;
         this.qdrantClient = qdrantClient;

@@ -70,12 +70,11 @@ public class UrlScanJobService : IUrlScanJobService
         var metadata = new DocumentMetadata
         {
             Url = doc.Url,
-            Title = pageContent.Index == 0 ? ExtractTitle(doc.ContentText) : $"Page {pageContent.Index + 1}",
+            Title = doc.IsPdf ? $"Page {pageContent.Index + 1}" : ExtractTitle(doc.ContentText), // ✅ Extract title only for HTML
             SourceType = doc.IsPdf ? "pdf" : "html",
             Content = pageContent.Content,
             ScrapedAt = DateTime.UtcNow
         };
-
         await vectorStore.SaveDocumentAsync(new DocumentVector { Embedding = embedding, Metadata = metadata }, embedding.Length);
     }
 
