@@ -1,4 +1,5 @@
 ﻿using MediatR;
+using System.Security.Principal;
 
 public class UserPromptCommand : IRequest<Result<string>>
 {
@@ -8,12 +9,10 @@ public class UserPromptCommand : IRequest<Result<string>>
 
     public class UserPromptCommandHandler : IRequestHandler<UserPromptCommand, Result<string>>
     {
-        private readonly IIdentity identity;
         private readonly IMCPServerRequester mCPServerRequester;
 
-        public UserPromptCommandHandler(IIdentity identity, IMCPServerRequester mCPServerRequester)
+        public UserPromptCommandHandler(IMCPServerRequester mCPServerRequester)
         {
-            this.identity = identity;
             this.mCPServerRequester = mCPServerRequester;
         }
 

@@ -1,5 +1,5 @@
 ﻿public interface IRetrieverService
 {
-    Task<Result<List<DocumentVector>>> RetrieveAllDocumentsAsync(CancellationToken cancellationToken);
-    Task<Result<List<DocumentVector>>> RetrieveDocumentsByQueryAsync(string queryText, CancellationToken cancellationToken);
+    Task<List<DocumentVector>> RetrieveAllDocumentsAsync(CancellationToken cancellationToken);
+    Task<List<DocumentVector>> RetrieveDocumentsByQueryAsync(string queryText, CancellationToken cancellationToken);
 }

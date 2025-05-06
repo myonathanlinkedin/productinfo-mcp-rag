@@ -5,6 +5,6 @@ public class JwksController : ApiController
 {
 
     [HttpGet]
-    [Route(nameof(GetPublicKey))]
-    public async Task<ActionResult<JsonWebKey>> GetPublicKey([FromQuery] GetPublicKeyCommand command) => await Send(command);
+    [Route(nameof(GetPublicKeyAsync))]
+    public async Task<ActionResult<JsonWebKey>> GetPublicKeyAsync([FromQuery] GetPublicKeyCommand command) => await Send(command);
 }

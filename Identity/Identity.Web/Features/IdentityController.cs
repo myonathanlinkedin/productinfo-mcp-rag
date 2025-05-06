@@ -5,27 +5,27 @@ using Microsoft.AspNetCore.Mvc;
 public class IdentityController : ApiController
 {
     [HttpPost]
-    [Route(nameof(Register))]
-    public async Task<ActionResult> Register(
+    [Route(nameof(RegisterAsync))]
+    public async Task<ActionResult> RegisterAsync(
         RegisterUserCommand command)
         => await Send(command);
 
     [HttpPost]
-    [Route(nameof(Login))]
-    public async Task<ActionResult<UserResponseModel>> Login(
+    [Route(nameof(LoginAsync))]
+    public async Task<ActionResult<UserResponseModel>> LoginAsync(
         LoginUserCommand command)
         => await Send(command);
 
     [HttpPut]
     [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-    [Route(nameof(ChangePassword))]
-    public async Task<ActionResult> ChangePassword(
+    [Route(nameof(ChangePasswordAsync))]
+    public async Task<ActionResult> ChangePasswordAsync(
         ChangePasswordCommand command)
         => await Send(command);
 
     [HttpPost]
-    [Route(nameof(ResetPassword))]
-    public async Task<ActionResult> ResetPassword(
+    [Route(nameof(ResetPasswordAsync))]
+    public async Task<ActionResult> ResetPasswordAsync(
         ResetPasswordCommand command)
         => await Send(command);
 }

@@ -22,23 +22,23 @@ public class RetrieverService : IRetrieverService
         this.embeddingService = embeddingService;
     }
 
-    public async Task<Result<List<DocumentVector>>> RetrieveAllDocumentsAsync(CancellationToken cancellationToken)
+    public async Task<List<DocumentVector>> RetrieveAllDocumentsAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("Retrieving all documents from vector store");
 
         try
         {
             var searchResult = await qdrantClient.ScrollAsync(appSettings.Qdrant.CollectionName, limit: GetSmartLimit());
-            return Result<List<DocumentVector>>.SuccessWith(ConvertToDocumentVectors<RetrievedPoint>(searchResult.Result));
+            return ConvertToDocumentVectors<RetrievedPoint>(searchResult.Result);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error retrieving all documents.");
-            return Result<List<DocumentVector>>.Failure(new List<string> { "Error retrieving documents." });
+            return new List<DocumentVector>(); // ✅ No Result wrapper, returning empty list on failure
         }
     }
 
-    public async Task<Result<List<DocumentVector>>> RetrieveDocumentsByQueryAsync(string queryText, CancellationToken cancellationToken)
+    public async Task<List<DocumentVector>> RetrieveDocumentsByQueryAsync(string queryText, CancellationToken cancellationToken)
     {
         logger.LogInformation("Retrieving documents matching query: {QueryText}", queryText);
 
@@ -46,18 +46,18 @@ public class RetrieverService : IRetrieverService
         if (embeddingVector == null || embeddingVector.Length == 0)
         {
             logger.LogError("Failed to generate embedding.");
-            return Result<List<DocumentVector>>.Failure(new List<string> { "Embedding generation failed." });
+            return new List<DocumentVector>(); // ✅ No Result wrapper
         }
 
         try
         {
             var searchResult = await qdrantClient.SearchAsync(appSettings.Qdrant.CollectionName, embeddingVector, limit: GetSmartTopK());
-            return Result<List<DocumentVector>>.SuccessWith(ConvertToDocumentVectors<ScoredPoint>(searchResult));
+            return ConvertToDocumentVectors<ScoredPoint>(searchResult);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error during document search.");
-            return Result<List<DocumentVector>>.Failure(new List<string> { "Error during search." });
+            return new List<DocumentVector>(); // ✅ Returning empty list on failure
         }
     }
 
