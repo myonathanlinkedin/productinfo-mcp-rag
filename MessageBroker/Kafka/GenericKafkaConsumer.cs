@@ -19,10 +19,10 @@ public class GenericKafkaConsumer : IKafkaConsumerService
 
     public async Task ConsumeAsync(string topic, CancellationToken cancellationToken)
     {
-        consumer.Subscribe(topic);
-
         try
         {
+            consumer.Subscribe(topic);
+
             while (!cancellationToken.IsCancellationRequested)
             {
                 var cr = consumer.Consume(cancellationToken);

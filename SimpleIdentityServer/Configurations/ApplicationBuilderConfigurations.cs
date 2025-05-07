@@ -1,4 +1,4 @@
-﻿public static class ApplicationBuilderExtensions
+﻿public static class ApplicationBuilderConfigurations
 {
     public static IApplicationBuilder UseWebService(
         this IApplicationBuilder app,
