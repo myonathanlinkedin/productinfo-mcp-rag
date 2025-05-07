@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Tokens;
+﻿using Microsoft.IdentityModel.Tokens;
 using System.Security.Cryptography;
 
 public class RsaKeyProviderService : IRsaKeyProvider

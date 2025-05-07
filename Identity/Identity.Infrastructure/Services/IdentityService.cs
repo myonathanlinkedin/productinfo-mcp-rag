@@ -31,13 +31,10 @@ public class IdentityService : IIdentity
         if (identityResult.Succeeded)
         {
             logger.LogInformation("User registered successfully with email: {Email}", userRequest.Email);
-
-            // Dispatch UserRegisteredEvent (if necessary)
             await eventDispatcher.Dispatch(new UserRegisteredEvent(userRequest.Email, userRequest.Password));
             return Result<IUser>.SuccessWith(user);
         }
 
-        // Log registration failure
         logger.LogWarning("User registration failed for email: {Email}. Errors: {Errors}", userRequest.Email, string.Join(", ", errors));
         return Result<IUser>.Failure(errors);
     }
@@ -58,81 +55,79 @@ public class IdentityService : IIdentity
             return Result<UserResponseModel>.Failure(new[] { InvalidErrorMessage });
         }
 
-        var token = await jwtGenerator.GenerateToken(user);
+        var tokens = await jwtGenerator.GenerateToken(user);
         logger.LogInformation("User logged in successfully with email: {Email}", userRequest.Email);
-        return Result<UserResponseModel>.SuccessWith(new UserResponseModel(token));
+        return Result<UserResponseModel>.SuccessWith(new UserResponseModel(tokens.AccessToken, tokens.RefreshToken));
+    }
+
+    public async Task<Result<string>> RefreshToken(RefreshTokenRequestModel refreshTokenRequest)
+    {
+        var user = await userManager.FindByIdAsync(refreshTokenRequest.UserId);
+        if (user == null)
+        {
+            logger.LogWarning("Refresh token failed. User not found for UserId: {UserId}", refreshTokenRequest.UserId);
+            return Result<string>.Failure(new[] { InvalidErrorMessage });
+        }
+
+        try
+        {
+            var newAccessToken = await jwtGenerator.RefreshToken(refreshTokenRequest.UserId, refreshTokenRequest.RefreshToken);
+            logger.LogInformation("Access token refreshed successfully for UserId: {UserId}", refreshTokenRequest.UserId);
+            return Result<string>.SuccessWith(newAccessToken);
+        }
+        catch (SecurityTokenException ex)
+        {
+            logger.LogWarning("Refresh token failed for UserId: {UserId}. Error: {Error}", refreshTokenRequest.UserId, ex.Message);
+            return Result<string>.Failure(new[] { "Invalid or expired refresh token." });
+        }
     }
 
     public async Task<Result> ChangePassword(ChangePasswordRequestModel changePasswordRequest)
     {
-        try
+        var user = await userManager.FindByIdAsync(changePasswordRequest.UserId);
+        if (user == null)
         {
-            var user = await userManager.FindByIdAsync(changePasswordRequest.UserId);
-            if (user == null)
-            {
-                logger.LogWarning("Change password failed. User not found for UserId: {UserId}", changePasswordRequest.UserId);
-                return Result.Failure(new[] { InvalidErrorMessage });
-            }
-
-            var identityResult = await userManager.ChangePasswordAsync(
-                user,
-                changePasswordRequest.CurrentPassword,
-                changePasswordRequest.NewPassword);
-
-            var errors = identityResult.Errors.Select(e => e.Description);
-
-            if (identityResult.Succeeded)
-            {
-                logger.LogInformation("Password changed successfully for email: {Email}", user.Email);
-
-                await eventDispatcher.Dispatch(new PasswordChangedEvent(user.Email, changePasswordRequest.NewPassword));
-                return Result.Success;
-            }
-
-            logger.LogWarning("Password change failed for email: {Email}. Errors: {Errors}", user.Email, string.Join(", ", errors));
-            return Result.Failure(errors);
+            logger.LogWarning("Change password failed. User not found for UserId: {UserId}", changePasswordRequest.UserId);
+            return Result.Failure(new[] { InvalidErrorMessage });
         }
-        catch (Exception ex)
+
+        var identityResult = await userManager.ChangePasswordAsync(user, changePasswordRequest.CurrentPassword, changePasswordRequest.NewPassword);
+        var errors = identityResult.Errors.Select(e => e.Description);
+
+        if (identityResult.Succeeded)
         {
-            logger.LogError(ex, "An error occurred while changing the password for UserId: {UserId}", changePasswordRequest.UserId);
-            return Result.Failure(new[] { "An unexpected error occurred. Please try again later." });
+            logger.LogInformation("Password changed successfully for email: {Email}", user.Email);
+            await eventDispatcher.Dispatch(new PasswordChangedEvent(user.Email, changePasswordRequest.NewPassword));
+            return Result.Success;
         }
+
+        logger.LogWarning("Password change failed for email: {Email}. Errors: {Errors}", user.Email, string.Join(", ", errors));
+        return Result.Failure(errors);
     }
-
 
     public async Task<Result> ResetPassword(string email)
     {
-        try
+        var user = await userManager.FindByEmailAsync(email);
+        if (user == null)
         {
-            var user = await userManager.FindByEmailAsync(email);
-            if (user == null)
-            {
-                logger.LogWarning("Password reset failed. User not found for email: {Email}", email);
-                return Result.Failure(new[] { InvalidErrorMessage });
-            }
-
-            var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
-            var newPassword = PasswordGenerator.Generate(6);
-            var identityResult = await userManager.ResetPasswordAsync(user, resetToken, newPassword);
-            var errors = identityResult.Errors.Select(e => e.Description);
-
-            if (identityResult.Succeeded)
-            {
-                logger.LogInformation("Password reset successfully for email: {Email}", email);
-
-                // Dispatch PasswordResetEvent (if necessary)
-                await eventDispatcher.Dispatch(new PasswordResetEvent(user.Email, newPassword));
-                return Result.Success;
-            }
-
-            logger.LogWarning("Password reset failed for email: {Email}. Errors: {Errors}", email, string.Join(", ", errors));
-            return Result.Failure(errors);
+            logger.LogWarning("Password reset failed. User not found for email: {Email}", email);
+            return Result.Failure(new[] { InvalidErrorMessage });
         }
-        catch (Exception ex)
+
+        var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+        var newPassword = PasswordGenerator.Generate(8);
+        var identityResult = await userManager.ResetPasswordAsync(user, resetToken, newPassword);
+        var errors = identityResult.Errors.Select(e => e.Description);
+
+        if (identityResult.Succeeded)
         {
-            logger.LogError(ex, "An error occurred while resetting the password for email: {Email}", email);
-            return Result.Failure(new[] { "An unexpected error occurred. Please try again later." });
+            logger.LogInformation("Password reset successfully for email: {Email}", email);
+            await eventDispatcher.Dispatch(new PasswordResetEvent(user.Email, newPassword));
+            return Result.Success;
         }
+
+        logger.LogWarning("Password reset failed for email: {Email}. Errors: {Errors}", email, string.Join(", ", errors));
+        return Result.Failure(errors);
     }
 
     public Result<JsonWebKey> GetPublicKey()

@@ -2,6 +2,7 @@
 
 public interface IJwtGenerator
 {
-    Task<string> GenerateToken(User user);
+    Task<(string AccessToken, string RefreshToken)> GenerateToken(User user);
     JsonWebKey GetPublicKey();
+    Task<string> RefreshToken(string userId, string providedRefreshToken);
 }

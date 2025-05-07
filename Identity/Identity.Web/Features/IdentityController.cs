@@ -10,8 +10,8 @@ public class IdentityController : ApiController
         IMediator mediator,
         UserManager<User> userManager)
         : base(mediator, userManager)
-            {
-            }
+    {
+    }
 
     [HttpPost]
     [Route(nameof(RegisterAsync))]
@@ -23,6 +23,13 @@ public class IdentityController : ApiController
     [Route(nameof(LoginAsync))]
     public async Task<ActionResult<UserResponseModel>> LoginAsync(
         LoginUserCommand command)
+        => await Send(command);
+
+    [HttpPost]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    [Route(nameof(RefreshTokenAsync))]
+    public async Task<ActionResult<UserResponseModel>> RefreshTokenAsync(
+        RefreshTokenCommand command)
         => await Send(command);
 
     [HttpPut]
