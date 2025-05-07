@@ -8,5 +8,6 @@ public interface IIdentity
     Task<Result> ChangePassword(ChangePasswordRequestModel changePasswordRequest);
     Task<Result> ResetPassword(string email);
     Task<Result<string>> RefreshToken(RefreshTokenRequestModel refreshTokenRequest);
+    Task<Result> AssignRoleAsync(string email, string roleName);
     Result<JsonWebKey> GetPublicKey();
 }

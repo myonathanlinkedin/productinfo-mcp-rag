@@ -130,6 +130,42 @@ public class IdentityService : IIdentity
         return Result.Failure(errors);
     }
 
+    public async Task<Result> AssignRoleAsync(string email, string roleName)
+    {
+        try
+        {
+            var user = await userManager.FindByEmailAsync(email);
+            if (user == null)
+            {
+                logger.LogWarning("Role assignment failed. User not found for email: {Email}", email);
+                return Result.Failure(new[] { "User not found." });
+            }
+
+            var roleExists = await userManager.IsInRoleAsync(user, roleName);
+            if (roleExists)
+            {
+                logger.LogInformation("User {Email} is already assigned to role {RoleName}.", email, roleName);
+                return Result.Failure(new[] { "User is already in this role." });
+            }
+
+            var roleResult = await userManager.AddToRoleAsync(user, roleName);
+            if (!roleResult.Succeeded)
+            {
+                logger.LogError("Failed to assign role {RoleName} to user {Email}. Errors: {Errors}",
+                    roleName, email, string.Join(", ", roleResult.Errors.Select(e => e.Description)));
+                return Result.Failure(roleResult.Errors.Select(e => e.Description));
+            }
+
+            logger.LogInformation("Successfully assigned role {RoleName} to user {Email}.", roleName, email);
+            return Result.Success;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("Error assigning role {RoleName} to user {Email}. Exception: {Exception}", roleName, email, ex.Message);
+            return Result.Failure(new[] { "An unexpected error occurred." });
+        }
+    }
+
     public Result<JsonWebKey> GetPublicKey()
     {
         return Result<JsonWebKey>.SuccessWith(jwtGenerator.GetPublicKey());

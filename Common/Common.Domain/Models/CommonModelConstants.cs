@@ -20,6 +20,5 @@ public class CommonModelConstants
     {
         public const string Administrator = "Administrator";
         public const string Prompter = "Prompter";
-        public const string User = "User";
     }
 }

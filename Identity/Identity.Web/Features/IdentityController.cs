@@ -39,6 +39,13 @@ public class IdentityController : ApiController
         ChangePasswordCommand command)
         => await Send(command);
 
+    [HttpPut]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = CommonModelConstants.Role.Administrator)]
+    [Route(nameof(AssignRoleAsync))]
+    public async Task<ActionResult> AssignRoleAsync(
+      AssignRoleCommand command)
+        => await Send(command);
+
     [HttpPost]
     [Route(nameof(ResetPasswordAsync))]
     public async Task<ActionResult> ResetPasswordAsync(
