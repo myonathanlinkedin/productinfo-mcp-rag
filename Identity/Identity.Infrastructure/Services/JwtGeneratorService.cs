@@ -11,18 +11,17 @@ public class JwtGeneratorService : IJwtGenerator
     private readonly string audience;
     private readonly string issuer;
     private readonly int tokenExpirationSeconds;
-    private readonly int refreshTokenExpirationDays;
 
     private const string RsaAlgorithm = SecurityAlgorithms.RsaSha256Signature;
-    private readonly Dictionary<string, (string RefreshToken, DateTime Expiry)> refreshTokenStore = new();
+    private readonly Dictionary<string, (string RefreshToken, DateTime Expiry)> _refreshTokenStore = new();
 
     public JwtGeneratorService(UserManager<User> userManager, ApplicationSettings appSettings, IRsaKeyProvider keyProvider)
     {
         this.userManager = userManager;
         this.keyProvider = keyProvider;
-        this.audience = appSettings.Audience;
-        this.issuer = appSettings.Issuer;
-        this.tokenExpirationSeconds = appSettings.TokenExpirationSeconds;
+        audience = appSettings.Audience;
+        issuer = appSettings.Issuer;
+        tokenExpirationSeconds = appSettings.TokenExpirationSeconds;
     }
 
     public async Task<(string AccessToken, string RefreshToken)> GenerateToken(User user)
@@ -30,35 +29,41 @@ public class JwtGeneratorService : IJwtGenerator
         var rsa = keyProvider.GetPrivateKey();
         var tokenHandler = new JwtSecurityTokenHandler();
 
+        var claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.NameIdentifier, user.Id),
+            new Claim(ClaimTypes.Name, user.Email),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim(JwtRegisteredClaimNames.Iat, DateTime.UtcNow.ToString())
+        };
+
+        var roles = await userManager.GetRolesAsync(user);
+        foreach (var role in roles)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
+
         var tokenDescriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity(new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, user.Id),
-                new Claim(ClaimTypes.Name, user.Email)
-            }),
+            Subject = new ClaimsIdentity(claims),
             Expires = DateTime.UtcNow.AddSeconds(tokenExpirationSeconds),
             Issuer = issuer,
             Audience = audience,
             SigningCredentials = new SigningCredentials(new RsaSecurityKey(rsa), RsaAlgorithm)
         };
 
-        if (await userManager.IsInRoleAsync(user, "Administrator"))
-        {
-            tokenDescriptor.Subject.AddClaim(new Claim(ClaimTypes.Role, "Administrator"));
-        }
-
         var accessToken = tokenHandler.WriteToken(tokenHandler.CreateToken(tokenDescriptor));
+        var refreshTokenExpiry = DateTime.UtcNow.AddSeconds((int)(tokenExpirationSeconds * 1.5)); // 50% longer than access token
         var refreshToken = GenerateRefreshToken();
 
-        refreshTokenStore[user.Id] = (refreshToken, DateTime.UtcNow.AddDays(refreshTokenExpirationDays));
+        _refreshTokenStore[user.Id] = (refreshToken, refreshTokenExpiry);
 
         return (accessToken, refreshToken);
     }
 
     public async Task<string> RefreshToken(string userId, string providedRefreshToken)
     {
-        if (!refreshTokenStore.TryGetValue(userId, out var storedToken) ||
+        if (!_refreshTokenStore.TryGetValue(userId, out var storedToken) ||
             storedToken.RefreshToken != providedRefreshToken ||
             storedToken.Expiry < DateTime.UtcNow)
         {

@@ -20,6 +20,10 @@ public sealed class IdentityTools
     private const string ResetPasswordDescription = "Reset the user's password. A new random password will be generated and emailed to the user. " +
                                                     "Advise the user to log in or re-login before proceeding if the password reset does not work.";
 
+    private const string AssignRoleDescription = "Assigns a specified role to a user. The role must exist before assignment. " +
+                                                 "Advise the user to log in or re-login before proceeding if the role assignment does not work.";
+
+
     private readonly IIdentityApi identityApi;
 
     public IdentityTools(IIdentityApi identityApi)
@@ -155,6 +159,45 @@ public sealed class IdentityTools
         {
             Log.Error(ex, "An exception occurred while resetting password for user: {Email}", email);
             return "An error occurred during password reset.";
+        }
+    }
+
+    [McpServerTool, Description(AssignRoleDescription)]
+    public async Task<string> AssignRoleAsync(
+       [Description("The Bearer token obtained after login for authentication")] string token,
+       [Description("User's email address")] string email,
+       [Description("Role name to assign")] string roleName)
+    {
+        var payload = new
+        {
+            email,
+            roleName
+        };
+
+        try
+        {
+            var response = await identityApi.AssignRoleAsync(payload, $"Bearer {token}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                Log.Information("Successfully assigned role {RoleName} to user: {Email}", roleName, email);
+                return $"Role '{roleName}' successfully assigned to user '{email}'. " +
+                       "Advise the user to log in or re-login before proceeding if the role assignment does not work.";
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                Log.Error("Failed to assign role {RoleName} to user: {Email}. StatusCode: {StatusCode}, Error: {Error}",
+                    roleName, email, response.StatusCode, errorContent);
+                return $"Failed to assign role. Status code: {response.StatusCode}. " +
+                       "Advise the user to log in or re-login before proceeding if the role assignment does not work.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "An exception occurred while assigning role {RoleName} to user: {Email}", roleName, email);
+            return "An error occurred during role assignment. " +
+                   "Advise the user to log in or re-login before proceeding if the role assignment does not work.";
         }
     }
 }

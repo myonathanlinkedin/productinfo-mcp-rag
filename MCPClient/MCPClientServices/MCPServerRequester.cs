@@ -56,7 +56,7 @@ public class MCPServerRequester : IMCPServerRequester
         try
         {
             if (!string.IsNullOrWhiteSpace(token))
-                 prompt = prompt + $" token: {token}";
+                 prompt = prompt + $" & use this token: {token}";
 
             List<ChatMessage> messages = useSession ? messageStore.GetMessages(sessionId) : new List<ChatMessage>();
 

@@ -13,4 +13,7 @@ public interface IIdentityApi
 
     [Post("/api/Identity/ResetPassword/ResetPasswordAsync")]
     Task<HttpResponseMessage> ResetPasswordAsync([Body] object payload);
+
+    [Put("/api/Identity/AssignRole/AssignRoleAsync")]
+    Task<HttpResponseMessage> AssignRoleAsync([Body] object payload, [Header("Authorization")] string token);
 }

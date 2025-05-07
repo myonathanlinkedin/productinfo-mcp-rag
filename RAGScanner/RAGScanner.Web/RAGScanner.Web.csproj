@@ -11,6 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\Common\Common.Application\Common.Application.csproj" />
     <ProjectReference Include="..\..\Common\Common.Web\Common.Web.csproj" />
     <ProjectReference Include="..\RAGScanner.Application\RAGScanner.Application.csproj" />
   </ItemGroup>
