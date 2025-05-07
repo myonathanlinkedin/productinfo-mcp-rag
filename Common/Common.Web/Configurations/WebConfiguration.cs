@@ -12,7 +12,7 @@ public static class WebConfiguration
             .AddValidatorsFromAssemblyContaining(applicationConfigurationType)
             .AddFluentValidationAutoValidation()
             .AddFluentValidationClientsideAdapters()
-            .AddScoped<ICurrentUser, CurrentUserService>();
+            .AddScoped<ICurrentUser, CurrentUserProvider>();
 
         return services;
     }

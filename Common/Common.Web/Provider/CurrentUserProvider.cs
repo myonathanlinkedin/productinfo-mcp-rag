@@ -1,9 +1,9 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 
-public class CurrentUserService : ICurrentUser
+public class CurrentUserProvider : ICurrentUser
 {
-    public CurrentUserService(IHttpContextAccessor httpContextAccessor)
+    public CurrentUserProvider(IHttpContextAccessor httpContextAccessor)
     {
         var user = httpContextAccessor.HttpContext?.User;
 

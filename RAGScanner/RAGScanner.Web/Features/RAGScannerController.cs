@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using ModelContextProtocol.Protocol.Types;
 
 public class RAGScannerController : ApiController
 {
@@ -14,7 +15,7 @@ public class RAGScannerController : ApiController
     }
 
     [HttpPost]
-    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = CommonModelConstants.Role.Administrator)]
     [Route(nameof(ScanUrlAsync))]
     public async Task<ActionResult<Result>> ScanUrlAsync(ScanUrlCommand command)
         => await Send(command, CurrentUser);

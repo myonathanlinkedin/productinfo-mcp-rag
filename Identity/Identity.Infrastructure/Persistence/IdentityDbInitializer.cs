@@ -18,30 +18,60 @@ internal class IdentityDbInitializer : DbInitializer
     public override void Initialize()
     {
         base.Initialize();
-
         SeedAdministrator();
     }
 
     private void SeedAdministrator()
-        => Task
-            .Run(async () =>
+        => Task.Run(async () =>
+        {
+            try
             {
-                var existingRole = await roleManager.FindByNameAsync(CommonModelConstants.Common.AdministratorRoleName);
-
-                if (existingRole != null)
+                var rolesToCreate = new[]
                 {
-                    return;
+                    CommonModelConstants.Role.Administrator,
+                    CommonModelConstants.Role.Prompter,
+                    CommonModelConstants.Role.User
+                };
+
+                foreach (var roleName in rolesToCreate)
+                {
+                    if (await roleManager.FindByNameAsync(roleName) == null)
+                    {
+                        var roleResult = await roleManager.CreateAsync(new IdentityRole(roleName));
+
+                        if (!roleResult.Succeeded)
+                        {
+                            throw new InvalidOperationException($"Failed to create role: {roleName}. Errors: {string.Join(", ", roleResult.Errors.Select(e => e.Description))}");
+                        }
+                    }
                 }
 
-                var adminRole = new IdentityRole(CommonModelConstants.Common.AdministratorRoleName);
+                var adminEmail = "admin@localhost";
+                var existingAdminUser = await userManager.FindByEmailAsync(adminEmail);
 
-                await roleManager.CreateAsync(adminRole);
+                if (existingAdminUser == null)
+                {
+                    var adminUser = new User(adminEmail);
+                    var userResult = await userManager.CreateAsync(adminUser, "Admin01");
 
-                var adminUser = new User("admin@localhost");
+                    if (!userResult.Succeeded)
+                    {
+                        throw new InvalidOperationException($"Failed to create administrator user. Errors: {string.Join(", ", userResult.Errors.Select(e => e.Description))}");
+                    }
 
-                await userManager.CreateAsync(adminUser, "Admin01");
-                await userManager.AddToRoleAsync(adminUser, CommonModelConstants.Common.AdministratorRoleName);
-            })
-            .GetAwaiter()
-            .GetResult();
+                    var roleAssignResult = await userManager.AddToRoleAsync(adminUser, CommonModelConstants.Role.Administrator);
+
+                    if (!roleAssignResult.Succeeded)
+                    {
+                        throw new InvalidOperationException($"Failed to assign Administrator role. Errors: {string.Join(", ", roleAssignResult.Errors.Select(e => e.Description))}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in SeedAdministrator: {ex.Message}");
+            }
+
+        }).GetAwaiter().GetResult();
+
 }
