@@ -15,7 +15,7 @@ public class PromptController : ApiController
 
 
     [HttpPost]
-    // [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     [Route(nameof(SendUserPromptAsync))]
     public async Task<ActionResult<string>> SendUserPromptAsync([FromBody] UserPromptCommand command) => await Send(command);
 }

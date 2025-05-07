@@ -51,24 +51,19 @@ public class MCPServerRequester : IMCPServerRequester
         }
     }
 
-    public async Task<Result<string>> RequestAsync(string prompt, ChatRole? chatRole = null, bool useSession = true)
+    public async Task<Result<string>> RequestAsync(string prompt, string token, ChatRole? chatRole = null, bool useSession = false)
     {
         try
         {
-            List<ChatMessage> messages = null;
+            if (!string.IsNullOrWhiteSpace(token))
+                 prompt = prompt + $" token: {token}";
 
-            // Retrieve messages from the message store
-            if (useSession)
-                messages = messageStore.GetMessages(sessionId);
-            else
-                messages = new List<ChatMessage>();
+            List<ChatMessage> messages = useSession ? messageStore.GetMessages(sessionId) : new List<ChatMessage>();
 
-            // Add the new user message
             messages.Add(new ChatMessage(chatRole ?? ChatRole.User, prompt));
 
             List<ChatResponseUpdate> updates = new List<ChatResponseUpdate>();
 
-            // Call to get streaming response
             var results = chatClient.GetStreamingResponseAsync(messages, new() { Tools = tools.Cast<AITool>().ToList() });
 
             StringBuilder responseBuilder = new StringBuilder();
@@ -79,20 +74,14 @@ public class MCPServerRequester : IMCPServerRequester
                 updates.Add(update);
             }
 
-            // Save updates as new chat responses
             messages.AddMessages(updates);
-
-            // Save the updated message list back to the store
             messageStore.SaveMessages(sessionId, messages);
 
             return Result<string>.SuccessWith(responseBuilder.ToString());
         }
         catch (Exception ex)
         {
-            // Log the exception
             logger.LogError(ex, "An error occurred while processing the request.");
-
-            // Return a failure result with the error message
             return Result<string>.Failure(new List<string> { $"An error occurred: {ex.Message}" });
         }
     }

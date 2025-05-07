@@ -16,4 +16,9 @@ public class CommonModelConstants
         public const int MinPasswordLength = 6;
         public const int MaxPasswordLength = 32;
     }
+
+    public class Role
+    {
+     
+    }
 }
